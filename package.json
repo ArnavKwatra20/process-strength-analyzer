@@ -1,0 +1,15 @@
+{
+  "name": "process-strength-analyzer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "npm --prefix client run dev",
+    "dev:server": "npm --prefix server run dev",
+    "preview": "npm --prefix client run preview",
+    "lint": "eslint .",
+    "build": "npm --prefix client run build && npm --prefix server run build",
+    "check": "npm --prefix client run check && npm --prefix server run check"
+  },
+  "devDependencies": { "concurrently": "^9.1.2", "eslint": "^9.17.0", "typescript-eslint": "^8.19.1", "eslint-plugin-react-hooks": "^5.1.0", "eslint-plugin-react-refresh": "^0.4.16" }
+}
