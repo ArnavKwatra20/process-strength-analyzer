@@ -21,6 +21,8 @@ npm run dev
 
 Open `http://localhost:5173`. The API listens on `http://localhost:4000`.
 
+The local client uses Vite's `/api` proxy by default. For a hosted client, set `client/.env` with `VITE_API_URL` pointing to a reachable API origin. The API must also allow the hosted client origin through `CLIENT_ORIGIN`. Do not expose the Windows inspection API publicly without authentication and a secure tunnel.
+
 Production build:
 
 ```bash
