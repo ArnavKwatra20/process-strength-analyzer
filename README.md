@@ -86,13 +86,35 @@ Invoke-WebRequest http://localhost:4000/api/processes -Headers $headers
 
 ### Expose it through an authenticated HTTPS tunnel
 
-Cloudflare Tunnel is one option. Install `cloudflared`, then run:
+Use a named Cloudflare Tunnel with a domain you control. Do not use `cloudflared tunnel --url`; that creates a Quick Tunnel and is not the required permanent/authenticated setup.
+
+After installing `cloudflared` on Windows, authenticate and create the tunnel:
 
 ```powershell
-cloudflared tunnel --url http://localhost:4000
+cloudflared tunnel login
+cloudflared tunnel create psa-windows-api
+cloudflared tunnel route dns psa-windows-api api.your-domain.example
 ```
 
-Use the generated HTTPS URL as `API_BACKEND_URL`. The tunnel URL is sensitive because it reaches the diagnostics API; keep `API_AUTH_TOKEN` enabled and do not share the URL unnecessarily. For a permanent deployment, use an authenticated Cloudflare Tunnel hostname and restrict access further with Cloudflare Access or an equivalent identity layer.
+Create `%USERPROFILE%\.cloudflared\config.yml` using the tunnel UUID and credentials path printed by `tunnel create`:
+
+```yaml
+tunnel: YOUR-TUNNEL-UUID
+credentials-file: C:\Users\YOUR-WINDOWS-USER\.cloudflared\YOUR-TUNNEL-UUID.json
+
+ingress:
+	- hostname: api.your-domain.example
+		service: http://localhost:4000
+	- service: http_status:404
+```
+
+Run the named tunnel as a foreground process while the diagnostics backend is running:
+
+```powershell
+cloudflared tunnel run psa-windows-api
+```
+
+Use `https://api.your-domain.example` as `API_BACKEND_URL`. The named tunnel supplies HTTPS transport, while `API_AUTH_TOKEN` protects every diagnostics request. Keep the token enabled and do not share the hostname unnecessarily. For stronger access control, add Cloudflare Access and configure the relay with the required service-auth headers before enabling it; the bearer token remains mandatory.
 
 ### Vercel environment variables
 
@@ -103,7 +125,7 @@ API_BACKEND_URL=https://your-authenticated-tunnel.example.com
 API_AUTH_TOKEN=the-exact-same-token-as-the-local-backend
 ```
 
-Redeploy after saving the variables. The deployed frontend calls its same-origin `/api/*` relay, and the relay adds the bearer token without sending it to browser JavaScript.
+Redeploy after saving the variables. For this architecture, leave `VITE_API_URL` unset or empty in Vercel: the production browser calls the same-origin `/api/*` relay at `https://client-ruddy-psi.vercel.app/api/...`. Do not point `VITE_API_URL` directly at the Windows tunnel, because the browser would not have the server-only bearer token. The relay adds that token without sending it to browser JavaScript.
 
 ### Remote testing
 
