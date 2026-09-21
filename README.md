@@ -66,6 +66,8 @@ API_AUTH_TOKEN=replace-with-a-long-random-secret
 ALLOWED_ORIGINS=http://localhost:5173,https://client-ruddy-psi.vercel.app
 ```
 
+The API resolves this file by path rather than by working directory, so `npm run dev` from the repository root and `npm --prefix server run dev` both read it. An optional `server/.env` is loaded first and wins for any variable it defines, which allows a server-only override without changing what the Vite proxy reads.
+
 Generate a token with PowerShell:
 
 ```powershell

@@ -1,13 +1,20 @@
 import express from 'express';
 import cors from 'cors';
 import { timingSafeEqual } from 'node:crypto';
-import 'dotenv/config';
+import { config as loadEnvironment } from 'dotenv';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { analyzeProcess } from './analysisService.js';
 import { getServiceMeta } from './metaService.js';
 import { buildChildren, getProcess, listProcesses, resolveProcessOwner } from './processService.js';
 import { listNetwork } from './networkService.js';
 import { getSystemHistory, getSystemSnapshot } from './systemService.js';
+
+// The server runs with `server/` as its working directory, so the repository-root `.env` that the
+// README documents and the Vite proxy reads is loaded by path. `server/.env` is optional and is
+// loaded first, because the first file to define a variable is the one that wins.
+loadEnvironment({ path: fileURLToPath(new URL('../.env', import.meta.url)) });
+loadEnvironment({ path: fileURLToPath(new URL('../../.env', import.meta.url)) });
 
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
