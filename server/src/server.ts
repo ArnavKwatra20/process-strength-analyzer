@@ -4,7 +4,8 @@ import { timingSafeEqual } from 'node:crypto';
 import 'dotenv/config';
 import { z } from 'zod';
 import { analyzeProcess } from './analysisService.js';
-import { buildChildren, getProcess, listProcesses } from './processService.js';
+import { getServiceMeta } from './metaService.js';
+import { buildChildren, getProcess, listProcesses, resolveProcessOwner } from './processService.js';
 import { listNetwork } from './networkService.js';
 import { getSystemHistory, getSystemSnapshot } from './systemService.js';
 
@@ -15,7 +16,9 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? process.env.CLIENT_ORIGIN
 	.split(',').map((origin) => origin.trim()).filter(Boolean);
 const requestCounts = new Map<string, { count: number; resetAt: number }>();
 const rateWindowMs = 60_000;
-const rateLimit = 120;
+// The interface polls four read-only routes per refresh, so the ceiling must stay above the
+// fastest supported cadence (4 requests per second at the 1 second interval).
+const rateLimit = 600;
 
 app.disable('x-powered-by');
 app.use((_, res, next) => {
@@ -23,10 +26,11 @@ app.use((_, res, next) => {
 	res.setHeader('X-Frame-Options', 'DENY');
 	res.setHeader('Referrer-Policy', 'no-referrer');
 	res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+	res.setHeader('Cache-Control', 'no-store');
 	next();
 });
 app.use(cors({ origin: (origin, callback) => { if (!origin || allowedOrigins.includes(origin)) return callback(null, true); const error = new Error('Origin not allowed') as Error & { status?: number }; error.status = 403; return callback(error); } }));
-app.use(express.json());
+app.use(express.json({ limit: '16kb' }));
 app.use((req, res, next) => {
 	const key = req.ip ?? 'unknown';
 	const now = Date.now();
@@ -51,12 +55,14 @@ function authenticate(req: express.Request, res: express.Response, next: express
 }
 
 app.use('/api', authenticate);
+app.get('/api/meta', (_req, res) => res.json(getServiceMeta()));
 app.get('/api/system', async (_req, res, next) => { try { res.json(await getSystemSnapshot()); } catch (error) { next(error); } });
 app.get('/api/system/history', (_req, res) => res.json(getSystemHistory()));
 app.get('/api/processes', async (_req, res, next) => { try { res.json(await listProcesses()); } catch (error) { next(error); } });
-app.get('/api/processes/:pid', async (req, res, next) => { try { const pid = pidSchema.parse(req.params.pid); const processes = await listProcesses(); const process = getProcess(pid, processes); if (!process) return res.status(404).json({ message: 'Process is no longer running or is unavailable.' }); res.json(process); } catch (error) { next(error); } });
+app.get('/api/processes/:pid', async (req, res, next) => { try { const pid = pidSchema.parse(req.params.pid); const processes = await listProcesses(); const process = getProcess(pid, processes); if (!process) return res.status(404).json({ message: 'Process is no longer running or is unavailable.' }); const user = process.user ?? await resolveProcessOwner(pid); res.json({ ...process, user }); } catch (error) { next(error); } });
 app.get('/api/processes/:pid/children', async (req, res, next) => { try { const pid = pidSchema.parse(req.params.pid); res.json(buildChildren(pid, await listProcesses())); } catch (error) { next(error); } });
 app.get('/api/analysis/:pid', async (req, res, next) => { try { const pid = pidSchema.parse(req.params.pid); const processes = await listProcesses(); const process = getProcess(pid, processes); if (!process) return res.status(404).json({ message: 'Process is no longer running.' }); res.json(analyzeProcess(process, buildChildren(pid, processes).length)); } catch (error) { next(error); } });
 app.get('/api/network', async (_req, res, next) => { try { res.json(await listNetwork()); } catch (error) { next(error); } });
-app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => { if (res.headersSent) return; const status = error instanceof z.ZodError ? 400 : typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number' ? error.status : 500; res.status(status).json({ message: status === 400 ? 'Invalid request.' : status === 403 ? 'Origin not allowed.' : 'Request could not be completed.' }); });
+app.use((_req, res) => res.status(404).json({ message: 'Not found.' }));
+app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => { if (res.headersSent) return; const status = error instanceof z.ZodError ? 400 : typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number' ? error.status : 500; if (status >= 500) console.error('[psa] request failed:', error instanceof Error ? error.message : String(error)); res.status(status).json({ message: status === 400 ? 'Invalid request.' : status === 403 ? 'Origin not allowed.' : 'Request could not be completed.' }); });
 app.listen(port, () => console.log(`PSA server listening on http://localhost:${port}`));

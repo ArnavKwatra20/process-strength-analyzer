@@ -4,7 +4,7 @@ Process Strength Analyzer (PSA) is a local, read-only developer diagnostics work
 
 ## Architecture
 
-- `client/`: React + TypeScript + Vite interface with Recharts, Framer Motion-ready layout, and Lucide icons.
+- `client/`: React + TypeScript + Vite interface with Recharts charts and Lucide icons. `/api/meta` drives the sidebar version, the Settings thresholds, and the declared collection capabilities so the interface never hardcodes a server value.
 - `server/`: Express + TypeScript API. Windows collection uses fixed PowerShell/WMI and `netstat.exe` queries; non-Windows systems use a portable `ps` fallback where available.
 - No database or elevated permissions are required. Session history exists in memory only.
 
@@ -36,11 +36,19 @@ npm run preview
 
 The application reads observable system information only. Some fields, executable paths, command lines, users, and network ownership may be `Unavailable` because of operating-system permissions or process lifetime races. Windows is the primary supported platform. This is not an antivirus and heuristic observations are not malware verdicts.
 
+Process owners are resolved per process (`Win32_Process.GetOwner`) only for the selected process, because doing so for every process on each poll would be prohibitively slow; the process list therefore reports `user` as `Unavailable`. Start times are reported as ISO 8601 timestamps in UTC.
+
+`/api/system` combines Node.js operating-system APIs with fixed read-only PowerShell queries. `diskUsed` is the used percentage of the Windows system drive (`Win32_LogicalDisk`, `DriveType=3`, current `SystemDrive`). `networkRx` and `networkTx` are host-wide transfer rates in bytes per second, derived from the cumulative `Win32_PerfRawData_Tcpip_NetworkInterface` byte counters divided by the elapsed time between two `/api/system` samples. The first sample of a session, and any sample taken less than 200 ms after the previous one, reuses the last known rate or reports `Unavailable`. On non-Windows platforms all three fields stay `Unavailable`.
+
 The server exposes only predefined read-only routes. It does not accept arbitrary shell commands, remote execution, persistence, credential access, injection, or destructive process actions.
 
 ## API
 
-`GET /api/system`, `/api/system/history`, `/api/processes`, `/api/processes/:pid`, `/api/processes/:pid/children`, `/api/analysis/:pid`, and `/api/network`.
+`GET /api/meta`, `/api/system`, `/api/system/history`, `/api/processes`, `/api/processes/:pid`, `/api/processes/:pid/children`, `/api/analysis/:pid`, and `/api/network`.
+
+Every route is read-only and returns JSON. `GET /api/meta` reports the server version, platform, data source, analysis thresholds, and per-feature collection capabilities. `GET /api/processes/:pid` additionally resolves the owning account for a single process, and `GET /api/processes/:pid/children` returns the direct children of that process; the interface calls both when a row is selected, and the connection list resolves each owning PID to its process name.
+
+`/api/*` is limited to 600 requests per minute per client address, which keeps the fastest supported interface cadence (four routes per second at the 1 second interval) inside the ceiling. Requests are limited by socket address, so a shared tunnel appears as a single client. Unmatched routes return `404` with a JSON body, and all responses are sent with `Cache-Control: no-store`.
 
 Environment variables are documented in `.env.example`.
 
